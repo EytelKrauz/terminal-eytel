@@ -25,14 +25,17 @@ const auth = getAuth(app);
 const input = document.getElementById("realInput");
 const welcome = document.getElementById("welcome");
 
+/* =========================
+   CONFIG
+========================= */
 const WELCOME_TEXT = "Hola Eytel...";
-const TYPE_SPEED = 30;
-
-let isTyping = false;
+const TYPE_SPEED_TITLE = 30;
+const TYPE_SPEED_TERMINAL = 25;
 
 /* =========================
-   ESTADOS LOGIN
+   ESTADO
 ========================= */
+let isTyping = false;
 let state = "idle"; 
 // idle | askUser | askPassword | authenticated
 let currentUser = "";
@@ -52,11 +55,11 @@ function typeWelcomeText(text, callback) {
       clearInterval(interval);
       if (callback) callback();
     }
-  }, TYPE_SPEED);
+  }, TYPE_SPEED_TITLE);
 }
 
 /* =========================
-   TERMINAL
+   TERMINAL BASE
 ========================= */
 function enableTerminal() {
   input.focus();
@@ -66,91 +69,8 @@ document.body.addEventListener("touchstart", () => {
   input.focus();
 });
 
-input.addEventListener("keydown", async (e) => {
-  if (e.key === "Enter" && !isTyping) {
-    e.preventDefault();
-
-    const lines = input.value.split("\n");
-    const command = lines[lines.length - 1].trim();
-
-    await executeCommand(command);
-  }
-});
-
 /* =========================
-   EJECUTAR COMANDO
-========================= */
-async function executeCommand(command) {
-
-  /* ---- LOGIN FLOW ---- */
-
-  if (state === "idle" && command.toLowerCase() === "acceder") {
-    input.value += "\nIngrese usuario:\n";
-    state = "askUser";
-    return;
-  }
-
-  if (state === "askUser") {
-    currentUser = command.toLowerCase();
-    input.value += "\nIngrese contraseña:\n";
-    state = "askPassword";
-    return;
-  }
-
-  if (state === "askPassword") {
-    const email = `${currentUser}@terminal.app`;
-
-    try {
-      await signInWithEmailAndPassword(auth, email, command);
-      input.value += "\nAcceso concedido ✔\n";
-      state = "authenticated";
-    } catch {
-      input.value += "\nAcceso denegado ✖\n";
-      state = "idle";
-    }
-    return;
-  }
-
-  /* ---- COMANDOS NORMALES (POST LOGIN) ---- */
-
-  if (state !== "authenticated") {
-    input.value += "\nDebe iniciar sesión\n";
-    return;
-  }
-
-  let response = "";
-
-  switch (command) {
-    case "help":
-      response =
-        "Comandos disponibles:\n" +
-        "help\n" +
-        "clear\n" +
-        "about";
-      break;
-
-    case "clear":
-      input.value = "";
-      return;
-
-    case "about":
-      response = "Terminal segura para Eytel 🙂";
-      break;
-
-    case "":
-      response = "";
-      break;
-
-    default:
-      response = `Comando no reconocido: ${command}`;
-  }
-
-  input.value += "\n";
-  typeText(response + "\n");
-}
-
-/* =========================
-   ANIMACIÓN TIPEO
+   IMPRESIÓN ANIMADA
 ========================= */
 function typeText(text) {
   isTyping = true;
@@ -165,11 +85,99 @@ function typeText(text) {
       clearInterval(interval);
       isTyping = false;
     }
-  }, 25);
+  }, TYPE_SPEED_TERMINAL);
+}
+
+function print(text) {
+  input.value += "\n";
+  typeText(text + "\n");
 }
 
 function moveCursorToEnd() {
   input.selectionStart = input.selectionEnd = input.value.length;
+}
+
+/* =========================
+   INPUT
+========================= */
+input.addEventListener("keydown", async (e) => {
+  if (e.key === "Enter" && !isTyping) {
+    e.preventDefault();
+
+    const lines = input.value.split("\n");
+    const command = lines[lines.length - 1].trim();
+
+    await executeCommand(command);
+  }
+});
+
+/* =========================
+   COMANDOS
+========================= */
+async function executeCommand(command) {
+
+  /* ---- LOGIN FLOW ---- */
+
+  if (state === "idle" && command.toLowerCase() === "acceder") {
+    print("Ingrese usuario:");
+    state = "askUser";
+    return;
+  }
+
+  if (state === "askUser") {
+    currentUser = command.toLowerCase();
+    print("Ingrese contraseña:");
+    state = "askPassword";
+    return;
+  }
+
+  if (state === "askPassword") {
+    const email = `${currentUser}@terminal.app`;
+
+    try {
+      await signInWithEmailAndPassword(auth, email, command);
+      print("Acceso concedido ✔");
+      state = "authenticated";
+    } catch {
+      print("Acceso denegado ✖");
+      state = "idle";
+    }
+    return;
+  }
+
+  /* ---- BLOQUEO SI NO ESTÁ LOGUEADO ---- */
+
+  if (state !== "authenticated") {
+    print("Debe iniciar sesión");
+    return;
+  }
+
+  /* ---- COMANDOS NORMALES ---- */
+
+  switch (command) {
+    case "help":
+      print(
+        "Comandos disponibles:\n" +
+        "help\n" +
+        "clear\n" +
+        "about"
+      );
+      break;
+
+    case "clear":
+      input.value = "";
+      break;
+
+    case "about":
+      print("Terminal segura para Eytel 🙂");
+      break;
+
+    case "":
+      break;
+
+    default:
+      print(`Comando no reconocido: ${command}`);
+  }
 }
 
 /* =========================
@@ -181,6 +189,5 @@ window.addEventListener("load", () => {
 
   typeWelcomeText(WELCOME_TEXT, () => {
     enableTerminal();
-    
   });
 });
