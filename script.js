@@ -78,6 +78,18 @@ function enableTerminal() {
 document.body.addEventListener("touchstart", enableTerminal);
 
 /* =========================
+   BLOQUEO TOTAL USUARIO
+========================= */
+function blockUserInput(e) {
+  if (isTyping) {
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
+  }
+  return false;
+}
+
+/* =========================
    IMPRESIÓN CON TIPEO
 ========================= */
 function typeText(text, callback) {
@@ -109,9 +121,16 @@ function print(text, callback) {
    PROTECCIÓN TEXTO
 ========================= */
 input.addEventListener("input", () => {
+
+  if (isTyping) {
+    input.value = systemText;
+    return;
+  }
+
   if (input.value.length < systemText.length) {
     input.value = systemText;
   }
+
   keepInputVisible();
 });
 
@@ -127,12 +146,14 @@ document.addEventListener("selectionchange", () => {
 ========================= */
 input.addEventListener("keydown", async (e) => {
 
+  if (blockUserInput(e)) return;
+
   if (e.key === "Backspace" && input.selectionStart <= systemText.length) {
     e.preventDefault();
     return;
   }
 
-  if (e.key === "Enter" && !isTyping) {
+  if (e.key === "Enter") {
     e.preventDefault();
 
     const lines = input.value.split("\n");
@@ -157,42 +178,27 @@ async function executeCommand(command) {
   const loginCommands = ["acceder", "iniciar", "ingresar", "login", "entrar"];
 
   if (state === "idle" && loginCommands.includes(cmd)) {
-    print("Ingrese usuario:", () => {
-      state = "askUser";
-    });
+    print("Ingrese usuario:", () => state = "askUser");
     return;
   }
 
   if (state === "askUser") {
     currentUser = cmd;
-    print("Ingrese contraseña:", () => {
-      state = "askPassword";
-    });
+    print("Ingrese contraseña:", () => state = "askPassword");
     return;
   }
 
   if (state === "askPassword") {
-
     const email = `${currentUser}@terminal.app`;
 
     try {
       await signInWithEmailAndPassword(auth, email, command);
-      print("Acceso concedido ✔", () => {
-        state = "authenticated";
+      print("Acceso concedido ✔", () => state = "authenticated");
+
+    } catch {
+      print("Usuario o contraseña incorrectos", () => {
+        print("Ingrese usuario:", () => state = "askUser");
       });
-
-    } catch (error) {
-
-      print(
-        error.code === "auth/wrong-password"
-          ? "Contraseña incorrecta"
-          : "Usuario no encontrado",
-        () => {
-          print("Ingrese usuario:", () => {
-            state = "askUser";
-          });
-        }
-      );
     }
     return;
   }
@@ -222,7 +228,7 @@ async function executeCommand(command) {
 }
 
 /* =========================
-   VIEWPORT MÓVIL (CLAVE)
+   VIEWPORT MÓVIL
 ========================= */
 if (window.visualViewport) {
   visualViewport.addEventListener("resize", keepInputVisible);
