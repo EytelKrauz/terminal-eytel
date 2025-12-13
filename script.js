@@ -181,6 +181,6 @@ window.addEventListener("load", () => {
 
   typeWelcomeText(WELCOME_TEXT, () => {
     enableTerminal();
-    input.value = "Escriba: Acceder\n";
+    
   });
 });
