@@ -39,6 +39,7 @@ let isTyping = false;
 let state = "idle"; 
 // idle | askUser | askPassword | authenticated
 let currentUser = "";
+let systemText = "";
 
 /* =========================
    ANIMACIÓN TÍTULO
@@ -50,57 +51,87 @@ function typeWelcomeText(text, callback) {
   const interval = setInterval(() => {
     welcome.textContent += text.charAt(i);
     i++;
-
     if (i >= text.length) {
       clearInterval(interval);
-      if (callback) callback();
+      callback && callback();
     }
   }, TYPE_SPEED_TITLE);
 }
 
 /* =========================
-   TERMINAL BASE
+   UTILIDADES
 ========================= */
+function moveCursorToEnd() {
+  input.selectionStart = input.selectionEnd = input.value.length;
+}
+
+function keepInputVisible() {
+  requestAnimationFrame(() => {
+    input.scrollTop = input.scrollHeight;
+  });
+}
+
 function enableTerminal() {
   input.focus();
 }
 
-document.body.addEventListener("touchstart", () => {
-  input.focus();
-});
+document.body.addEventListener("touchstart", enableTerminal);
 
 /* =========================
-   IMPRESIÓN ANIMADA
+   IMPRESIÓN CON TIPEO
 ========================= */
-function typeText(text) {
+function typeText(text, callback) {
   isTyping = true;
   let i = 0;
 
   const interval = setInterval(() => {
     input.value += text.charAt(i);
     moveCursorToEnd();
+    keepInputVisible();
     i++;
 
     if (i >= text.length) {
       clearInterval(interval);
       isTyping = false;
+      systemText = input.value;
+      keepInputVisible();
+      callback && callback();
     }
   }, TYPE_SPEED_TERMINAL);
 }
 
-function print(text) {
+function print(text, callback) {
   input.value += "\n";
-  typeText(text + "\n");
-}
-
-function moveCursorToEnd() {
-  input.selectionStart = input.selectionEnd = input.value.length;
+  typeText(text + "\n", callback);
 }
 
 /* =========================
-   INPUT
+   PROTECCIÓN TEXTO
+========================= */
+input.addEventListener("input", () => {
+  if (input.value.length < systemText.length) {
+    input.value = systemText;
+  }
+  keepInputVisible();
+});
+
+input.addEventListener("paste", e => e.preventDefault());
+input.addEventListener("click", moveCursorToEnd);
+
+document.addEventListener("selectionchange", () => {
+  if (document.activeElement === input) moveCursorToEnd();
+});
+
+/* =========================
+   TECLADO
 ========================= */
 input.addEventListener("keydown", async (e) => {
+
+  if (e.key === "Backspace" && input.selectionStart <= systemText.length) {
+    e.preventDefault();
+    return;
+  }
+
   if (e.key === "Enter" && !isTyping) {
     e.preventDefault();
 
@@ -108,6 +139,12 @@ input.addEventListener("keydown", async (e) => {
     const command = lines[lines.length - 1].trim();
 
     await executeCommand(command);
+
+    setTimeout(() => {
+      input.focus();
+      moveCursorToEnd();
+      keepInputVisible();
+    }, 0);
   }
 });
 
@@ -116,63 +153,67 @@ input.addEventListener("keydown", async (e) => {
 ========================= */
 async function executeCommand(command) {
 
-  /* ---- LOGIN FLOW ---- */
+  const cmd = command.toLowerCase();
+  const loginCommands = ["acceder", "iniciar", "ingresar", "login", "entrar"];
 
-  if (state === "idle" && command.toLowerCase() === "acceder") {
-    print("Ingrese usuario:");
-    state = "askUser";
+  if (state === "idle" && loginCommands.includes(cmd)) {
+    print("Ingrese usuario:", () => {
+      state = "askUser";
+    });
     return;
   }
 
   if (state === "askUser") {
-    currentUser = command.toLowerCase();
-    print("Ingrese contraseña:");
-    state = "askPassword";
+    currentUser = cmd;
+    print("Ingrese contraseña:", () => {
+      state = "askPassword";
+    });
     return;
   }
 
   if (state === "askPassword") {
+
     const email = `${currentUser}@terminal.app`;
 
     try {
       await signInWithEmailAndPassword(auth, email, command);
-      print("Acceso concedido ✔");
-      state = "authenticated";
-    } catch {
-      print("Acceso denegado ✖");
-      state = "idle";
+      print("Acceso concedido ✔", () => {
+        state = "authenticated";
+      });
+
+    } catch (error) {
+
+      print(
+        error.code === "auth/wrong-password"
+          ? "Contraseña incorrecta"
+          : "Usuario no encontrado",
+        () => {
+          print("Ingrese usuario:", () => {
+            state = "askUser";
+          });
+        }
+      );
     }
     return;
   }
-
-  /* ---- BLOQUEO SI NO ESTÁ LOGUEADO ---- */
 
   if (state !== "authenticated") {
     print("Debe iniciar sesión");
     return;
   }
 
-  /* ---- COMANDOS NORMALES ---- */
-
-  switch (command) {
+  switch (cmd) {
     case "help":
-      print(
-        "Comandos disponibles:\n" +
-        "help\n" +
-        "clear\n" +
-        "about"
-      );
+      print("Comandos:\nhelp\nclear\nabout");
       break;
 
     case "clear":
       input.value = "";
+      systemText = "";
       break;
 
     case "about":
       print("Terminal segura para Eytel 🙂");
-      break;
-
-    case "":
       break;
 
     default:
@@ -181,13 +222,17 @@ async function executeCommand(command) {
 }
 
 /* =========================
+   VIEWPORT MÓVIL (CLAVE)
+========================= */
+if (window.visualViewport) {
+  visualViewport.addEventListener("resize", keepInputVisible);
+}
+
+/* =========================
    INICIO
 ========================= */
 window.addEventListener("load", () => {
   input.value = "";
-  input.blur();
-
-  typeWelcomeText(WELCOME_TEXT, () => {
-    enableTerminal();
-  });
+  systemText = "";
+  typeWelcomeText(WELCOME_TEXT, enableTerminal);
 });
