@@ -2,23 +2,31 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <!-- VIEWPORT: Mantiene la configuración crucial para el teclado móvil -->
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1.0, maximum-scale=1.0,
-                   user-scalable=no, interactive-widget=resizes-content">
 
-    <title>Terminal Eytel</title>
+    <!-- VIEWPORT MÓVIL CORRECTO -->
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0,
+                   maximum-scale=1.0, user-scalable=no,
+                   interactive-widget=resizes-content">
+
+    <title>Terminal ✨</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Jura:wght@300..700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="CSS/style.css">
 </head>
+
 <body>
 
-    <div class="container" id="appContainer">
-        <div id="welcome" class="welcome-text"></div>
+<div class="container" id="appContainer">
+
+    <div id="welcome" class="welcome-text"></div>
+
+    <!-- TERMINAL COMPLETA -->
+    <div class="terminal">
+
         <textarea
             id="realInput"
             autocomplete="off"
@@ -26,8 +34,13 @@
             autocapitalize="off"
             spellcheck="false">
         </textarea>
-    </div>
 
-    <script type="module" src="script.js"></script>
+        <!-- LINKS INTEGRADOS -->
+        <div id="linksContainer" class="links"></div>
+
+    </div>
+</div>
+
+<script type="module" src="JS/script.js"></script>
 </body>
 </html>
