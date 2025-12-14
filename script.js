@@ -1,8 +1,23 @@
+/* =====================
+IMPORTS FIREBASE
+===================== */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import {
+    getAuth,
+    signInWithEmailAndPassword,
+    signOut,
+    setPersistence,
+    browserLocalPersistence,
+    onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import {
+    getFirestore,
+    doc,
+    getDoc
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 /* =====================
-   FIREBASE
+FIREBASE CONFIG
 ===================== */
 const firebaseConfig = {
     apiKey: "AIzaSyDb2eM06eDAEMloDnfRMPO5MCbMkfSv_vg",
@@ -15,31 +30,57 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getFirestore(app);
 
 /* =====================
-   ELEMENTOS
+PERSISTENCIA DE SESIÓN
+===================== */
+setPersistence(auth, browserLocalPersistence);
+
+/* =====================
+ELEMENTOS DOM
 ===================== */
 const input = document.getElementById("realInput");
 const welcome = document.getElementById("welcome");
 const appContainer = document.getElementById("appContainer");
+const linksContainer = document.getElementById("linksContainer");
 
 /* =====================
-   CONSTANTES
+CONSTANTES
 ===================== */
 const WELCOME_TEXT = "封鎖区域";
 const TYPE_SPEED_TITLE = 30;
 const TYPE_SPEED_TERMINAL = 10;
 
 /* =====================
-   ESTADO
+ESTADO GLOBAL
 ===================== */
 let isTyping = false;
 let state = "idle";
 let currentUser = "";
 let systemText = "";
 
+// 🔐 Control de autenticación
+let authProcessing = false;
+let authInitialized = false;
+
 /* =====================
-   ANIMACIÓN INICIAL
+UTILIDADES
+===================== */
+function cleanText(text) {
+    return text.replace(/[\u200E\u200F\u202A-\u202E]/g, "");
+}
+
+function moveCursorToEnd() {
+    input.selectionStart = input.selectionEnd = input.value.length;
+}
+
+function forceScrollBottom() {
+    input.scrollTop = input.scrollHeight;
+}
+
+/* =====================
+ANIMACIÓN TÍTULO
 ===================== */
 function typeWelcomeText(text, callback) {
     let i = 0;
@@ -54,78 +95,34 @@ function typeWelcomeText(text, callback) {
 }
 
 /* =====================
-   SCROLL / CURSOR
+TYPEWRITER SEGURO
 ===================== */
-function moveCursorToEnd() {
-    input.selectionStart = input.selectionEnd = input.value.length;
-}
+function typeText(text) {
+    return new Promise(resolve => {
+        isTyping = true;
+        let i = 0;
 
-function forceScrollBottom() {
-    input.scrollTop = input.scrollHeight;
-    if (document.activeElement !== input) input.focus();
-}
+        const interval = setInterval(() => {
+            input.value += text.charAt(i++);
+            moveCursorToEnd();
+            forceScrollBottom();
 
-function keepInputVisible() {
-    requestAnimationFrame(() => {
-        forceScrollBottom();
-        window.scrollTo(0, 0);
+            if (i >= text.length) {
+                clearInterval(interval);
+                isTyping = false;
+                systemText = input.value;
+                resolve();
+            }
+        }, TYPE_SPEED_TERMINAL);
     });
 }
 
-function enableTerminal() {
-    input.focus();
-    keepInputVisible();
+function print(text) {
+    return typeText(cleanText(text) + "\n");
 }
 
 /* =====================
-   VIEWPORT MÓVIL
-===================== */
-if (window.visualViewport) {
-    visualViewport.addEventListener("resize", () => {
-        appContainer.style.height = `${visualViewport.height}px`;
-        forceScrollBottom();
-    });
-
-    visualViewport.addEventListener("scroll", forceScrollBottom);
-
-    window.addEventListener("load", () => {
-        appContainer.style.height = `${visualViewport.height}px`;
-    });
-}
-
-document.body.addEventListener("touchstart", e => {
-    if (e.target !== input) enableTerminal();
-});
-
-/* =====================
-   TYPEWRITER
-===================== */
-function typeText(text, callback) {
-    isTyping = true;
-    let i = 0;
-    const interval = setInterval(() => {
-        input.value += text.charAt(i++);
-        moveCursorToEnd();
-        input.scrollTop = input.scrollHeight;
-
-        if (i >= text.length) {
-            clearInterval(interval);
-            isTyping = false;
-            systemText = input.value;
-            requestAnimationFrame(forceScrollBottom);
-            callback?.();
-        }
-    }, TYPE_SPEED_TERMINAL);
-}
-
-function print(text, callback) {
-    input.value += "\n";
-    input.scrollTop = input.scrollHeight;
-    typeText(text + "\n", callback);
-}
-
-/* =====================
-   PROTECCIÓN DE CURSOR
+PROTECCIÓN INPUT
 ===================== */
 document.addEventListener("selectionchange", () => {
     if (
@@ -137,125 +134,192 @@ document.addEventListener("selectionchange", () => {
 });
 
 input.addEventListener("keydown", async e => {
-    if (isTyping) return e.preventDefault();
+    if (isTyping || authProcessing) return e.preventDefault();
 
-    if (e.key === "Backspace" && input.selectionStart <= systemText.length)
-        return e.preventDefault();
-
-    if (e.key === "ArrowLeft" && input.selectionStart <= systemText.length)
-        return e.preventDefault();
+    if (
+        (e.key === "Backspace" || e.key === "ArrowLeft") &&
+        input.selectionStart <= systemText.length
+    ) return e.preventDefault();
 
     if (e.key === "Enter") {
         e.preventDefault();
-        const command = input.value.substring(systemText.length).trim();
+
+        const userText = input.value.substring(systemText.length);
         systemText = input.value + "\n";
         input.value = systemText;
-        forceScrollBottom();
+
+        const command = userText.trim();
         await executeCommand(command);
     }
 });
 
 input.addEventListener("input", () => {
-    if (isTyping) {
-        input.value = systemText;
-        return;
-    }
-
     if (!input.value.startsWith(systemText)) {
         input.value = systemText;
+        moveCursorToEnd();
     }
-
-    forceScrollBottom();
 });
 
 input.addEventListener("paste", e => e.preventDefault());
 
 /* =====================
-   COMANDOS
+LINKS
+===================== */
+function renderLinks(lines) {
+    linksContainer.innerHTML = "";
+
+    lines.forEach(line => {
+        const match = line.match(/(https?:\/\/\S+)/);
+        if (!match) return;
+
+        const url = match[1];
+        const label = line.replace(url, "").trim();
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.textContent = label || url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+
+        linksContainer.appendChild(a);
+    });
+}
+
+/* =====================
+CONTENIDO SEGURO
+===================== */
+async function loadSecureContent() {
+    const ref = doc(db, "secureContent", "main");
+    const snap = await getDoc(ref);
+
+    if (!snap.exists()) {
+        await print("No hay contenido seguro.");
+        return;
+    }
+
+    const data = snap.data();
+
+    await print(`=== ${data.title} ===`);
+    renderLinks(data.lines);
+
+    systemText = input.value;
+    moveCursorToEnd();
+}
+
+/* =====================
+COMANDOS
 ===================== */
 async function executeCommand(command) {
     const cmd = command.toLowerCase();
-    const loginCommands = ["acceder", "iniciar", "ingresar", "login", "entrar"];
+    const loginCommands = ["login", "acceder", "entrar", "iniciar"];
 
     if (state === "idle") {
         if (loginCommands.includes(cmd)) {
-            print("Ingrese usuario:", () => state = "askUser");
-        } else if (cmd === "help") {
-            print("Comandos disponibles:\n- login\n- help\n- clear\n- about");
-        } else if (cmd === "clear") {
-            input.value = "";
-            systemText = "";
-            print("");
-        } else if (cmd === "about") {
-            print("Terminal segura v1.0.");
-        } else if (cmd) {
-            print(`Comando no reconocido: [ ${command} ]. Debe iniciar sesión`);
+            await print("Ingrese usuario:");
+            state = "askUser";
         } else {
-            print("");
+            await print("Debe iniciar sesión.");
         }
         return;
     }
 
     if (state === "askUser") {
-        if (cmd) {
-            currentUser = cmd;
-            print("Ingrese contraseña:", () => state = "askPassword");
-        } else {
-            print("Usuario inválido.");
-            state = "idle";
-        }
+        currentUser = cmd;
+        await print("Ingrese contraseña:");
+        state = "askPassword";
         return;
     }
 
     if (state === "askPassword") {
         const email = `${currentUser}@terminal.app`;
-        print("Verificando...", async () => {
-            try {
-                await signInWithEmailAndPassword(auth, email, command);
-                print(
-                    `Acceso concedido. Bienvenido ${currentUser}`,
-                    () => state = "authenticated"
-                );
-            } catch {
-                print("Error de credenciales.", () => {
-                    state = "idle";
-                    print("Intente 'login' nuevamente.");
-                });
-            }
-        });
+
+        authProcessing = true;
+        await print("Verificando...");
+
+        try {
+            await signInWithEmailAndPassword(auth, email, command);
+            state = "authenticated";
+            await print(`[ Acceso concedido ]`);
+            await loadSecureContent();
+        } catch {
+            await print("Credenciales incorrectas.");
+            state = "idle";
+        }
+
+        authProcessing = false;
         return;
     }
 
     if (state === "authenticated") {
         switch (cmd) {
-            case "help":
-                print("Comandos:\n- logout\n- clear\n- status");
+            case "logout":
+                authProcessing = true;
+                await signOut(auth);
+                state = "idle";
+                currentUser = "";
+                linksContainer.innerHTML = "";
+                await print("Sesión cerrada.");
+                authProcessing = false;
                 break;
+
+            case "status":
+                await print("Estado: Autenticado.");
+                break;
+
             case "clear":
                 input.value = "";
                 systemText = "";
+                linksContainer.innerHTML = "";
                 break;
-            case "logout":
-                state = "idle";
-                currentUser = "";
-                print("Desconectado.");
-                break;
-            case "status":
-                print("Estado: Conectado y Seguro.");
-                break;
+
             default:
-                print(cmd ? "Comando desconocido." : "");
+                await print("Comando no reconocido.");
         }
     }
 }
 
 /* =====================
-   INICIO
+RESTAURAR SESIÓN
+===================== */
+onAuthStateChanged(auth, async user => {
+
+    // ⛔ Evitar colisión con login manual
+    if (authProcessing) return;
+
+    // ⛔ Primera ejecución
+    if (!authInitialized) {
+        authInitialized = true;
+        if (!user) return;
+    }
+
+    if (!user) return;
+
+    currentUser = user.email.split("@")[0];
+    state = "authenticated";
+
+    await print(`[ Sesión restaurada ]`);
+    await loadSecureContent();
+});
+
+/* =====================
+FIX TECLADO MÓVIL
+===================== */
+if (window.visualViewport) {
+    visualViewport.addEventListener("resize", () => {
+        appContainer.style.height = `${visualViewport.height}px`;
+        forceScrollBottom();
+    });
+}
+
+/* =====================
+INICIO
 ===================== */
 window.addEventListener("load", () => {
     input.value = "";
     systemText = "";
+    linksContainer.innerHTML = "";
+
     setTimeout(() => {
-        typeWelcomeText(WELCOME_TEXT, enableTerminal);
+        typeWelcomeText(WELCOME_TEXT, () => input.focus());
     }, 500);
 });
